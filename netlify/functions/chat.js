@@ -55,6 +55,11 @@ export default async (req, context) => {
     messages: body.messages,
     max_tokens: Math.min(Number(body.max_tokens) || MAX_TOKENS, MAX_TOKENS),
     temperature: typeof body.temperature === 'number' ? body.temperature : 0.2,
+    // gpt-oss is a reasoning model. Left to its defaults it leaks successive drafts of
+    // the same answer into content, glued together without spacing, and drifts language.
+    // Hiding the reasoning channel and keeping effort low removed that in testing.
+    reasoning_format: body.reasoning_format || 'hidden',
+    reasoning_effort: body.reasoning_effort || 'low',
   };
   if (Array.isArray(body.tools) && body.tools.length) {
     payload.tools = body.tools;

@@ -778,7 +778,7 @@ $('#engLLM').onclick=()=>{setEngine('llm');sys(`LLM mode on (${llm.model}). The 
 /* ---------- LLM agent ---------- */
 const SYSTEM=`You are Masar, the shipment assistant for a UAE postal and courier operator. Today is Wednesday 26 August 2026.
 Scope: tracking status, rescheduling a delivery, changing a delivery address, and handing off to a human. Politely decline anything else in one sentence and steer back.
-Reply in the customer's language (English or Arabic, Gulf-friendly Modern Standard Arabic). Keep replies short: 1 to 3 sentences, plain words, one question at a time.
+Reply in the same language the customer used in their latest message: English to English, Arabic to Arabic (Gulf-friendly Modern Standard Arabic). Never switch language unless the customer switches first. Keep replies short: 1 to 3 sentences, plain words, one question at a time. Give one reply only: never restate or rephrase the same answer twice in a single message.
 Hard rules:
 - Use tools for every fact about a shipment. Never guess a status, date, slot, amount or policy. If a tool says blocked, explain it simply and offer the alternative or a handoff.
 - Before any personal detail or change, verify with verify_customer (last 4 digits of the phone on file). Ask for them if you do not have them.
@@ -795,6 +795,29 @@ const TOOLS=[
  {name:'validate_address',description:'Check and normalise a new delivery address inside the same emirate. Returns an address_token when valid, or what is missing.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},new_address:{type:'string'}},required:['tracking_number','new_address']}},
  {name:'update_address',description:'Commit a validated address. Only after the customer explicitly agreed to the normalised address in their latest message.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},address_token:{type:'string'}},required:['tracking_number','address_token']}},
  {name:'create_handoff',description:'Create a ticket for a human colleague with a summary so the customer does not repeat themselves.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},reason_code:{type:'string',enum:['CUSTOMER_REQUEST','CLAIM','DATA_CONFLICT','MAX_ATTEMPTS','CANNOT_VERIFY','CROSS_EMIRATE','ADDRESS_CHANGE_APPROVAL','RETURN_REDIRECT','OTHER']},summary:{type:'string'}},required:['reason_code','summary']}}];
+/* gpt-oss occasionally emits several drafts of the same reply concatenated with no
+   space after the punctuation ("...please?Sure, please provide..."). Keep the first
+   draft and drop any later one that only restates it. */
+function cleanReply(t){
+  const raw=String(t||'').trim(); if(!raw) return '';
+  /* A sentence end with no space before the next one is the tell: normal prose never
+     does it, so anything that splits here is the model restarting its own answer. */
+  const parts=raw.split(/(?<=[.!?\u061F])(?=["\u201C\u2018']?[A-Z\u0600-\u06FF])/).map(p=>p.trim()).filter(Boolean);
+  if(parts.length<2) return raw;
+  const RESTART=/^(sure|certainly|of course|absolutely|no problem|understood|thank you|thanks|apolog|sorry|happy to|glad to|i'?m ready|i am ready|i'?m here|i can help|let me)/i;
+  const words=p=>new Set(p.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(w=>w.length>2));
+  const out=[parts[0]];
+  for(let i=1;i<parts.length;i++){
+    const seg=parts[i];
+    if(RESTART.test(seg)) continue;
+    const a=words(seg); if(!a.size) continue;
+    let dup=false;
+    for(const kept of out){ const b=words(kept); let hit=0; a.forEach(w=>{if(b.has(w))hit++});
+      if(hit/a.size>=0.3){dup=true;break} }
+    if(!dup) out.push(seg);
+  }
+  return out.join(' ');
+}
 const OA_TOOLS=TOOLS.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.input_schema}}));
 const llmSession={verified:{},tries:{}};
 function runTool(name,inp,lastUser){
@@ -820,7 +843,7 @@ async function llmTurn(text){
       const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
       const m=j.choices&&j.choices[0]&&j.choices[0].message; if(!m) throw new Error('empty response from the model');
       llm.history.push({role:'assistant',content:m.content||'',tool_calls:m.tool_calls});
-      if(m.content&&m.content.trim()) bot(m.content.trim());
+      const say=cleanReply(m.content); if(say) bot(say);
       const calls=m.tool_calls||[];
       if(!calls.length) break;
       for(const c of calls){
