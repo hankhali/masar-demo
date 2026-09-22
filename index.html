@@ -72,6 +72,17 @@ main.grid{display:grid;grid-template-columns:minmax(360px,440px) 1fr;gap:16px;pa
 .desk-c{display:flex;gap:7px;margin-top:9px}
 .desk-c input{flex:1;font:inherit;font-size:13px;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--paper);color:var(--ink)}
 .desk-c button{font:inherit;font-size:13px;padding:8px 13px;border-radius:9px;border:1px solid var(--palm);background:var(--palm);color:#fff;cursor:pointer}
+.att{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:10px 0 4px}
+.att .b{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--receipt)}
+.att .b b{display:block;font-size:20px;font-family:var(--mono);color:var(--ink)}
+.att .b span{display:block;font-size:11.5px;color:var(--ink-2);line-height:1.45;margin-top:3px}
+.att .b.hi{border-color:var(--palm)}
+.att .b.no{border-color:var(--stamp)}
+.pick{display:flex;flex-wrap:wrap;gap:7px;margin:9px 0 2px}
+.pick button{font:inherit;font-size:12px;font-family:var(--mono);padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;text-align:left;line-height:1.4}
+.pick button:hover{border-color:var(--palm)}
+.pick button small{display:block;font-family:var(--body);color:var(--ink-2);font-size:11px}
+@media (max-width:900px){.att{grid-template-columns:repeat(2,1fr)}}
 .desk-back{margin-top:9px;font:inherit;font-size:12px;padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ink-2);cursor:pointer}
 .slots{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .slots button{text-align:start;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:7px 10px;cursor:pointer;font-size:14px}
@@ -515,6 +526,7 @@ const T={
   thanks:'You\'re welcome. Anything else for this parcel?',
   smalltalk:'I\'m good, thank you for asking. What can I do for your parcel today?',
   menu:'I can reschedule the delivery or update the address. Which would you like?',
+  menuNoRs:'This parcel has used all 3 delivery attempts, so I can\'t book another one myself. I can still update the delivery address, or pass you to a colleague about the delivery. Which would help?',
   confused:'Sorry, I didn\'t catch that. You can say "reschedule", "change address", or "talk to someone".',
   capability:'I can track a parcel, book a new delivery slot, or update a delivery address. What\'s your tracking number? It looks like EX400123AE.',
   noTrackNum:'It\'s in the SMS or email we sent when the parcel shipped, and on the card the courier left. It starts with EX and ends with AE.',
@@ -567,6 +579,7 @@ const T={
   thanks:'العفو. هل تحتاج شيئاً آخر لهذه الشحنة؟',
   smalltalk:'بخير، شكراً لسؤالك. كيف أساعدك في شحنتك اليوم؟',
   menu:'أستطيع إعادة جدولة التوصيل أو تحديث العنوان. ماذا تفضّل؟',
+  menuNoRs:'استُخدمت محاولات التوصيل الثلاث، لذلك لا أستطيع حجز موعد جديد بنفسي. أستطيع تحديث عنوان التوصيل، أو تحويلك لزميل بخصوص التوصيل. ماذا تفضّل؟',
   confused:'عذراً، لم أفهم. يمكنك قول "موعد جديد" أو "تغيير العنوان" أو "موظف".',
   capability:'أستطيع تتبّع الشحنة، أو حجز موعد توصيل جديد، أو تحديث عنوان التوصيل. ما رقم التتبع؟ مثل EX400123AE.',
   noTrackNum:'تجده في الرسالة النصية أو البريد الذي أرسلناه عند شحن الطرد، وعلى البطاقة التي تركها المندوب. يبدأ بـ EX وينتهي بـ AE.',
@@ -640,12 +653,14 @@ function mkRulesAgent(api,DATA){
     const r=api.raw(S.t); const pre=!r.a?[out(L().addrOnFileJunk)]:[];
     return [...pre,out(L().askAddr(em(r.e)))];
   }
+  const rsAllowed=r=>!!r&&['FAILED','REDELIVERY_SCHEDULED','OUT_FOR_DELIVERY'].includes(r.st)&&r.at<3&&!r.dup;
+  const menuFor=t=>{const r=api.raw(t);return rsAllowed(r)||!['FAILED','REDELIVERY_SCHEDULED','OUT_FOR_DELIVERY'].includes(r.st)?L().menu:L().menuNoRs};
   function afterVerified(){
     const w=S.want; S.want=null; S.awaiting=null; const r=api.raw(S.t); api.lookup(S.t,S.session);
     const pre=[out(L().verified)];
     if(w==='reschedule'){ if(!r.a&&['FAILED','REDELIVERY_SCHEDULED','IN_TRANSIT'].includes(r.st)){S.after='reschedule';return [...pre,...startAddress()]} return [...pre,...offerSlots(S.pref)] }
     if(w==='address') return [...pre,...startAddress()];
-    return [...pre,out(L().menu)];
+    return [...pre,out(menuFor(S.t))];
   }
   function route(intent,text){
     const r=api.raw(S.t);
@@ -664,7 +679,7 @@ function mkRulesAgent(api,DATA){
     const res=[out(L().status(S.t,v.status,v.attempts))];
     const r=api.raw(S.t);
     if(!r.a&&['FAILED','IN_TRANSIT','REDELIVERY_SCHEDULED'].includes(r.st)&&S.session.verified[S.t]) res.push(out(L().addrOnFileJunk));
-    res.push(out(L().statusNext[v.status]||L().menu)); S.awaiting=null; return res;
+    res.push(out(rsAllowed(r)?(L().statusNext[v.status]||L().menu):(['FAILED','REDELIVERY_SCHEDULED','OUT_FOR_DELIVERY'].includes(r.st)?L().menuNoRs:(L().statusNext[v.status]||L().menu)))); S.awaiting=null; return res;
   }
   function phoneLookup(ph){
     const o=api.byPhone(ph).output;
@@ -762,7 +777,7 @@ function mkRulesAgent(api,DATA){
     }
     if(!S.awaiting&&/\b(villa|apt|apartment|bldg|building|office|flat)\s*#?\s*\d+|فيلا\s*\d|شقة\s*\d|مبنى\s*\d/i.test(text)){ const pre=startAddress(); if(S.awaiting==='address') return handle(text); return pre }
     if(/^\s*\d{4}\s*$/.test(text)&&!S.session.verified[S.t]){ S.awaiting='last4'; S.want=null; return handle(text) }
-    if(NLU.yes(text)&&!S.pending) return [out(L().menu)];
+    if(NLU.yes(text)&&!S.pending) return [out(menuFor(S.t))];
     if(intent==='thanks') return [out(L().thanks)];
     if(intent==='smalltalk') return [out(L().smalltalk)];
     if(intent==='greet') return [out(L().menu)];
@@ -908,8 +923,47 @@ $('#p-pol').innerHTML=`<h3 class="sec">Policy rules the code enforces</h3><p cla
   <div class="num"><b>${pct(s.self_serve_eligible_share_of_actionable)}</b><span>of open shipments pass identity, data and attempt rules: the self-service ceiling</span></div>
  </div>
  <div class="tblwrap"><table><thead><tr><th>Issue</th><th>Rows</th><th>Severity</th><th>Example</th></tr></thead><tbody>${s.issues.map(i=>`<tr><td><code>${i.issue_code}</code></td><td>${i.rows}</td><td>${i.severity}</td><td>${esc(DESC[i.issue_code]||'')}</td></tr>`).join('')}</tbody></table></div>
+ ${attemptsBlock()}
  <p class="note">Row-level log with the handling rule for every issue: see the cleaned workbook submitted alongside this demo. The sample is small (${s.unique} shipments), so segment-level differences, e.g. by emirate, are not treated as findings.</p>`;
+ $('#p-dq').querySelectorAll('.pick button').forEach(b=>b.onclick=()=>{
+   boot(false); sys("Shipment "+b.dataset.t+" · the customer's phone ends "+b.dataset['4']);
+   send('My parcel '+b.dataset.t+" didn't arrive. Can you rebook it?");
+   document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x.dataset.p==='trace'));
+   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-trace'));
+ });
 })();
+/* ---------- delivery attempts ---------- */
+function attemptsBlock(){
+  // A throwaway backend so these probes never land in the live agent trace.
+  const probe=mkBackend(DATA), recs=Object.values(DATA.records), total=recs.length;
+  const OPEN=['FAILED','REDELIVERY_SCHEDULED','OUT_FOR_DELIVERY'];
+  const att=[0,0,0,0]; recs.forEach(r=>att[Math.min(r.at,3)]++);
+  const open=recs.filter(r=>OPEN.includes(r.st));
+  const bk={ok:[],noPhone:[],maxed:[],conflict:[]};
+  open.forEach(r=>{ const o=probe.getSlots(r.t,{verified:{[r.t]:true},tries:{}}).output;
+    if(!o.ok){ (o.blocked_by==='P-DQ-01'?bk.conflict:bk.maxed).push(r); return }
+    (!r.p||r.fl.includes('PHONE_INVALID')?bk.noPhone:bk.ok).push(r); });
+  const pct=v=>(v/open.length*100).toFixed(0)+'%';
+  const seen={}, demo=bk.ok.filter(r=>!r.dup&&r.p).filter(r=>(seen[r.st]=(seen[r.st]||0)+1)<=2);
+  const blocked=bk.maxed.filter(r=>r.p).slice(0,1);
+  const row=r=>`<button type="button" data-t="${r.t}" data-4="${r.p.slice(-4)}">${r.t} · ${r.p.slice(-4)}<small>${r.st.replace(/_/g,' ').toLowerCase()} · ${r.at}/3 attempts · ${r.e}${r.cod?' · COD AED '+r.cod.toFixed(2):''}</small></button>`;
+  return `<h3 class="sec" style="margin-top:20px">Delivery attempts, and what they allow</h3>
+  <p class="lead">Every attempt after the first is a van, a driver and a second trip. Across ${total} shipments the courier made <b>${recs.reduce((a,r)=>a+Math.max(0,r.at-1),0)}</b> attempts beyond the first. The attempt count is also the single most common reason the agent must stop and pass a customer to a colleague, so it is worth reading before a demo.</p>
+  <div class="att">${att.map((c,i)=>`<div class="b${i===3?' no':''}"><b>${c}</b><span>${i===3?'all 3 attempts used':i+' attempt'+(i===1?'':'s')+' so far'} · ${(c/total*100).toFixed(0)}% of shipments</span></div>`).join('')}</div>
+  <p class="lead" style="margin-top:14px">Of the <b>${open.length}</b> shipments still open (failed, out for delivery, or awaiting redelivery), this is what the policy rules actually permit today:</p>
+  <div class="att">
+   <div class="b hi"><b>${bk.ok.length}</b><span>can be rescheduled in chat · ${pct(bk.ok.length)}</span></div>
+   <div class="b no"><b>${bk.maxed.length}</b><span>all 3 attempts used, <code>P-RS-02</code> blocks it · ${pct(bk.maxed.length)}</span></div>
+   <div class="b no"><b>${bk.noPhone.length}</b><span>no usable phone, cannot verify · ${pct(bk.noPhone.length)}</span></div>
+   <div class="b no"><b>${bk.conflict.length}</b><span>conflicting records, <code>P-DQ-01</code> blocks it · ${pct(bk.conflict.length)}</span></div>
+  </div>
+  <p class="note" style="margin-top:10px">These four are counted by running the real policy checks over every open shipment, not written down by hand, so they cannot drift from the rules.</p>
+  <h3 class="sec" style="margin-top:18px;font-size:15px">Shipments to demo with</h3>
+  <p class="lead">Click one to start that conversation. The last 4 digits are shown so you can verify without looking them up.</p>
+  <div class="pick" id="pickOk">${demo.map(row).join('')}</div>
+  <p class="lead" style="margin-top:10px">And one that the agent must refuse, to show the guard stopping it:</p>
+  <div class="pick" id="pickNo">${blocked.map(row).join('')}</div>`;
+}
 /* ---------- value ---------- */
 (function(){
  const F=[['calls','Shipment-related calls per month',50000,5000,200000,5000,v=>v.toLocaleString()],['scope','Share in MVP scope (failed / reschedule / address)',60,20,90,5,v=>v+'%'],['adopt','Share who use the assistant instead of calling',35,5,70,5,v=>v+'%'],['contain','Containment: resolved, no human contact in 7 days',55,20,80,5,v=>v+'%'],['cpc','Cost per handled call (AED, fully loaded)',14,4,40,1,v=>'AED '+v],['cconv','Cost per assistant conversation (AED)',1.2,0.2,5,0.1,v=>'AED '+v.toFixed(1)]];
