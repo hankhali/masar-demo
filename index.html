@@ -382,13 +382,18 @@ function parseAddress(text,DATA,emirate){
 /* ---------- bilingual NLU ---------- */
 const NLU={
   lang:t=>/[\u0600-\u06FF]/.test(t)?'ar':'en',
-  tracking(t){const u=t.toUpperCase().replace(/[\s\-]/g,'');const m=u.match(/EX\d{6}AE|TEST\d{4}/);return m?m[0]:null},
+  tracking(t){const u=t.toUpperCase().replace(/[\s\-]/g,'')
+      .replace(/EX([\dOIL]{6})AE/g,(_,d)=>'EX'+d.replace(/O/g,'0').replace(/[IL]/g,'1')+'AE');
+    const m=u.match(/EX\d{6}AE|TEST\d{4}/);return m?m[0]:null},
   last4(t){const s=t.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/EX\d{6}AE/ig,'');const m=s.match(/(?:^|\D)(\d{4})(?:\D|$)/);return m?m[1]:null},
   intent(t){
     const s=t.toLowerCase();
     const has=(...r)=>r.some(x=>x.test(s));
     if(has(/^(hi|hello|hey|hiya|salam|greetings|good (morning|afternoon|evening))( there| masar)?[\s!.,?]*$/,/^(مرحبا|مرحباً|السلام عليكم|السلام|هلا|اهلا|أهلا|صباح الخير|مساء الخير)[\s!.,؟]*$/)) return 'greet';
     if(has(/\b(agent|human|person|representative|operator|real person|someone|call me back|supervisor|manager|customer (service|care|support))\b/,/موظف|انسان|إنسان|شخص|خدمة العملاء|اتصل ?بي|مشرف/)) return 'human';
+    if(has(/^(cancel|never ?mind|nevermind|forget it|stop|no thanks|nothing|nvm)\b/,/^(ألغ|الغاء|إلغاء|لا شكرا|لا شكراً|انس|خلاص)/)) return 'cancel';
+    if(has(/^help$|what can (you|u) (do|help)|what do (you|u) do|how (does this|do you) work|what are my options|^options$/,/شو تقدر|ماذا تستطيع|كيف يعمل|ما الخيارات|مساعدة/)) return 'capability';
+    if(has(/(don'?t|do not|dont|doesn'?t) (know|have|remember)|no idea|not sure|can'?t (find|remember)|cannot find|lost (it|my|the)|forgot|don'?t know/,/ما (أعرف|اعرف|عندي)|لا (أعرف|اعرف)|نسيت|ضاع|مو متأكد/)) return 'dontknow';
     if(has(/(not|never|didn'?t|did not|haven'?t)\s+(receive|get|got|arrive)/,/marked (as )?delivered/,/\bstolen\b|\bmissing parcel\b|\bdamaged\b|\bbroken\b|\brefund\b|\bcompensat/,/لم (استلم|أستلم|يصل|توصل)|ما (استلمت|وصل|وصلت)|تعويض|مكسور|تالف|مسروق/)) return 'claim';
     if(has(/\baddress\b|deliver (it )?to (a |another |my )|\bnew location\b|\bmoved\b|wrong (location|building|villa|apt)|where (it|its|it'?s|it is) (being )?deliver|where to deliver|change where/,/عنوان|غير(ت)? (السكن|المكان)|مكان التوصيل/)) return 'address';
     if(has(/re-?schedul|re-?deliver|re-?book|\bpostpone\b|deliver (it )?(again|another|tomorrow|on|next)|another (day|time|slot)|new (delivery )?(date|time|slot|day|appointment)|change (the )?(date|time|slot|day)|send (it )?again|come (back|again)|not (be )?(at )?home|won'?t be (home|there|in)|\bslot\b|\btomorrow\b|\bevening\b|\bmorning\b|\bafternoon\b|try again/,/موعد|إعادة التوصيل|اعادة التوصيل|وقت ثاني|يوم ثاني|بكرة|بكره|غد|غداً|مساء|صباح|ما راح أكون|لن أكون|مو موجود|غير موجود/)) return 'reschedule';
@@ -474,6 +479,12 @@ const T={
   smalltalk:'I\'m good, thank you for asking. What can I do for your parcel today?',
   menu:'I can reschedule the delivery or update the address. Which would you like?',
   confused:'Sorry, I didn\'t catch that. You can say "reschedule", "change address", or "talk to someone".',
+  capability:'I can track a parcel, book a new delivery slot, or update a delivery address. What\'s your tracking number? It looks like EX400123AE.',
+  noTrackNum:'It\'s in the SMS or email we sent when the parcel shipped, and on the card the courier left. It starts with EX and ends with AE.',
+  cantVerifyAlt:'For your security I can only check those digits against the shipment, I can\'t read the number out.',
+  offerHuman:'Would you like me to pass you to a colleague who can help with that?',
+  slotsAgain:'Here are the slots I have over the next few days.',
+  cantDoThat:'That one is outside what I can do myself.',
   addrPrompt2:'I still couldn\'t read that address. I\'ll pass you to a colleague so it gets done right.',
  },
  ar:{
@@ -513,6 +524,12 @@ const T={
   smalltalk:'بخير، شكراً لسؤالك. كيف أساعدك في شحنتك اليوم؟',
   menu:'أستطيع إعادة جدولة التوصيل أو تحديث العنوان. ماذا تفضّل؟',
   confused:'عذراً، لم أفهم. يمكنك قول "موعد جديد" أو "تغيير العنوان" أو "موظف".',
+  capability:'أستطيع تتبّع الشحنة، أو حجز موعد توصيل جديد، أو تحديث عنوان التوصيل. ما رقم التتبع؟ مثل EX400123AE.',
+  noTrackNum:'تجده في الرسالة النصية أو البريد الذي أرسلناه عند شحن الطرد، وعلى البطاقة التي تركها المندوب. يبدأ بـ EX وينتهي بـ AE.',
+  cantVerifyAlt:'لأسباب أمنية أستطيع فقط مطابقة هذه الأرقام مع الشحنة، ولا أستطيع قراءة الرقم لك.',
+  offerHuman:'هل تحب أن أحوّلك إلى زميل يساعدك في ذلك؟',
+  slotsAgain:'هذه المواعيد المتاحة خلال الأيام القادمة.',
+  cantDoThat:'هذا خارج ما أستطيع فعله بنفسي.',
   addrPrompt2:'ما زلت لا أستطيع قراءة العنوان. سأحوّلك لزميل ليتم الأمر بشكل صحيح.',
  }
 };
@@ -620,12 +637,19 @@ function mkRulesAgent(api,DATA){
       if(S.want){const w=S.want;S.want=null;return route(w,text)}
       return statusReply();
     }
+    if(S.awaiting==='offerHuman'){
+      S.awaiting=null;
+      if(NLU.yes(text)) return [handoff(S.humanCode||'CUSTOMER_REQUEST',S.humanWhy||'Assistant could not answer; customer accepted a handoff.')];
+      if(NLU.no(text)) return [out(L().thanks)];
+    }
     if(S.awaiting==='last4'){
       const d=NLU.last4(text);
       if(d){ const e=api.verify(S.t,d,S.session);
         if(e.output.ok) return afterVerified();
         if(e.output.error==='locked') return [out(L().locked),handoff('VERIFY_LOCKED','3 failed verification attempts.')];
         return [out(L().badLast4(e.output.attempts_left))]; }
+      if(intent==='dontknow'||intent==='cancel'){ S.awaiting='offerHuman'; S.humanCode='CANNOT_VERIFY';
+        S.humanWhy='Customer cannot confirm the last 4 digits on '+S.t+'.'; return [out(L().cantVerifyAlt),out(L().offerHuman)] }
       if(intent&&intent!=='greet'&&intent!=='smalltalk') {S.awaiting=null} else return [out(L().askLast4)];
     }
     if(S.awaiting==='confirm'&&S.pending){
@@ -641,6 +665,7 @@ function mkRulesAgent(api,DATA){
       const n=NLU.choice(text,S.slotList.length);
       if(n){ const s=S.slotList[n-1]; S.pending={type:'res',slot:s}; S.awaiting='confirm'; const l=slotLabel(s); return [out(L().confirmSlot(S.t,l.d,l.w,api.raw(S.t).cod))] }
       const w=NLU.when(text); if(w.date||w.win) return offerSlots(w);
+      if(intent==='dontknow'||/none|doesn'?t work|don'?t work|not good|another|different|else/i.test(text)) return [out(L().slotsAgain),...offerSlots(null)];
     }
     if(S.awaiting==='address'){
       if(intent&&['reschedule','status','claim'].includes(intent)&&!/\d/.test(text)){S.awaiting=null;return route(intent,text)}
@@ -654,9 +679,16 @@ function mkRulesAgent(api,DATA){
       if(intent==='greet') return [out(L().hello)];
       if(intent==='smalltalk') return [out(L().smalltalk)];
       if(intent==='thanks') return [out(L().thanks)];
+      if(intent==='capability') return [out(L().capability)];
+      if(intent==='cancel') return [out(L().cancelled)];
+      if(intent==='dontknow'){ S.awaiting='offerHuman'; S.humanCode='OTHER';
+        S.humanWhy='Customer does not have their tracking number.'; return [out(L().noTrackNum),out(L().offerHuman)] }
       if(intent&&['reschedule','address','status','claim'].includes(intent)){ S.want=intent; S.pref=NLU.when(text); return [out(L().askTracking)] }
       if(/\d{5,}/.test(text)) return [out(L().notFound(text.replace(/\s/g,'').slice(0,14)))];
-      return [out(L().offTopic)];
+      if(/\b(poem|joke|write|story|weather|politic|recipe|code|football|song|ignore (all|previous)|system prompt|pretend)\b/i.test(text)||/نكتة|قصيدة|طقس/.test(text)) return [out(L().offTopic)];
+      S.awaiting='offerHuman'; S.humanCode='OTHER';
+      S.humanWhy='Customer asked: "'+text.slice(0,140)+'" with no tracking number.';
+      return [out(L().cantDoThat),out(L().offerHuman)];
     }
     if(!S.awaiting&&/\b(villa|apt|apartment|bldg|building|office|flat)\s*#?\s*\d+|فيلا\s*\d|شقة\s*\d|مبنى\s*\d/i.test(text)){ const pre=startAddress(); if(S.awaiting==='address') return handle(text); return pre }
     if(/^\s*\d{4}\s*$/.test(text)&&!S.session.verified[S.t]){ S.awaiting='last4'; S.want=null; return handle(text) }
@@ -664,9 +696,17 @@ function mkRulesAgent(api,DATA){
     if(intent==='thanks') return [out(L().thanks)];
     if(intent==='smalltalk') return [out(L().smalltalk)];
     if(intent==='greet') return [out(L().menu)];
+    if(intent==='capability') return [out(L().menu)];
+    if(intent==='cancel') return [out(L().cancelled)];
+    if(intent==='dontknow'){ S.awaiting='offerHuman'; S.humanCode='OTHER';
+      S.humanWhy='Customer could not supply what the assistant asked for on '+S.t+'.'; return [out(L().offerHuman)] }
     if(intent) return route(intent,text);
     if(/\b(poem|joke|write|story|weather|politic|recipe|code|football|song|ignore (all|previous)|system prompt|pretend)\b/i.test(text)||/نكتة|قصيدة|طقس/.test(text)) return [out(L().offTopic)];
-    return [out(L().confused)];
+    // Anything else in-scope enough to be a real question goes to a colleague
+    // rather than a shrug: the prototype should never leave a customer stuck.
+    S.awaiting='offerHuman'; S.humanCode='OTHER';
+    S.humanWhy='Customer asked: "'+text.slice(0,140)+'" on '+S.t+'.';
+    return [out(L().cantDoThat),out(L().offerHuman)];
   }
   return {handle,state:S};
 }
