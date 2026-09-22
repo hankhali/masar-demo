@@ -54,6 +54,25 @@ main.grid{display:grid;grid-template-columns:minmax(360px,440px) 1fr;gap:16px;pa
 .m.user{background:var(--user);color:var(--user-ink);align-self:flex-end;border-bottom-right-radius:4px}
 .m[dir="rtl"]{font-family:"IBM Plex Sans Arabic",var(--body)}
 .m.sys{align-self:center;background:transparent;color:var(--ink-3);font-size:12px;text-align:center;max-width:92%}
+.m.human{background:var(--bot);align-self:flex-start;border-bottom-left-radius:4px;border-left:3px solid var(--palm)}
+.m.human .who{display:block;font-size:11px;font-weight:600;color:var(--palm);margin-bottom:3px;letter-spacing:.02em}
+.desk-empty{color:var(--ink-3);font-size:13px;padding:14px 2px;line-height:1.55}
+.desk-t{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:9px;background:var(--receipt)}
+.desk-t .id{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink)}
+.desk-t .why{font-size:12px;color:var(--ink-2);margin:5px 0 8px;line-height:1.5}
+.desk-t .rc{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:999px;background:var(--panel);color:var(--ink-2);border:1px solid var(--line);margin-left:6px}
+.desk-t button{font:inherit;font-size:12px;padding:5px 11px;border-radius:8px;border:1px solid var(--palm);background:var(--palm);color:#fff;cursor:pointer}
+.desk-t button.done{background:transparent;color:var(--ink-3);border-color:var(--line);cursor:default}
+.desk-live h4{margin:0 0 3px;font-size:13px;font-family:var(--mono)}
+.desk-live .meta{font-size:12px;color:var(--ink-2);margin-bottom:9px;line-height:1.5}
+.desk-feed{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--receipt);max-height:290px;overflow:auto;font-size:12.5px;line-height:1.55}
+.desk-feed div{margin-bottom:6px}
+.desk-feed .r{font-weight:600;color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.desk-feed .hum{color:var(--palm)}
+.desk-c{display:flex;gap:7px;margin-top:9px}
+.desk-c input{flex:1;font:inherit;font-size:13px;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--paper);color:var(--ink)}
+.desk-c button{font:inherit;font-size:13px;padding:8px 13px;border-radius:9px;border:1px solid var(--palm);background:var(--palm);color:#fff;cursor:pointer}
+.desk-back{margin-top:9px;font:inherit;font-size:12px;padding:5px 10px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ink-2);cursor:pointer}
 .slots{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .slots button{text-align:start;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:7px 10px;cursor:pointer;font-size:14px}
 .slots button:hover{border-color:var(--palm)}
@@ -188,6 +207,7 @@ p.lead{color:var(--ink-2);max-width:760px;margin:0 0 14px}
   <section class="card" aria-label="Operations console">
     <div class="tabs" role="tablist">
       <button role="tab" aria-selected="true" data-p="trace">Agent trace</button>
+      <button role="tab" aria-selected="false" data-p="desk" id="tabDesk">Agent desk</button>
       <button role="tab" aria-selected="false" data-p="rec">Shipment record</button>
       <button role="tab" aria-selected="false" data-p="pol">Policies</button>
       <button role="tab" aria-selected="false" data-p="dq">Data quality</button>
@@ -197,6 +217,7 @@ p.lead{color:var(--ink-2);max-width:760px;margin:0 0 14px}
       <label class="toggle-nlu"><input type="checkbox" id="showNlu"> Show language-understanding steps</label>
       <div class="feed" id="feed"><div class="empty"><p>Every lookup, policy check and write prints here as a receipt.</p><p>Green stamps passed. Red stamps blocked the action. Nothing is written to the shipment database until the customer says yes.</p></div></div>
     </div>
+    <div class="pane" id="p-desk"></div>
     <div class="pane" id="p-rec"><div id="recView" class="empty"><p>Open a shipment in the chat to see its record, the data-quality flags on it, and every change the agent makes.</p></div></div>
     <div class="pane" id="p-pol"></div>
     <div class="pane" id="p-dq"></div>
@@ -717,18 +738,24 @@ function mkRulesAgent(api,DATA){
 (function(){
 const $=s=>document.querySelector(s);
 let api, agent, engine='rules', llm={model:'openai/gpt-oss-120b',history:[]}, kpi={res:0,ho:0};
-function boot(fresh){ if(typeof llmSession!=='undefined'){llmSession.verified={};llmSession.tries={};llmSession.offered={};llmSession.addr={}} if(fresh||!api){ api=mkBackend(DATA); hookAudit(); } agent=mkRulesAgent(api,DATA); llm.history=[]; lastT=null; $('#msgs').innerHTML=''; bot(T.en.hello); }
+function boot(fresh){ if(typeof desk!=='undefined'){ if(fresh) desk.tickets=[]; desk.live=null; desk.built=false; desk.transcript=[]; if($('#p-desk')){renderDesk();deskBadge()} }
+  if(typeof llmSession!=='undefined'){llmSession.verified={};llmSession.tries={};llmSession.offered={};llmSession.addr={}} if(fresh||!api){ api=mkBackend(DATA); hookAudit(); } agent=mkRulesAgent(api,DATA); llm.history=[]; lastT=null; $('#msgs').innerHTML=''; bot(T.en.hello); }
 let lastT=null;
 function hookAudit(){ const push=api.audit.push.bind(api.audit); api.audit.push=(e)=>{const r=push(e); renderReceipt(e); return r}; $('#feed').innerHTML=''; }
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function scroll(){const m=$('#msgs');m.scrollTop=m.scrollHeight}
-function user(t){const d=document.createElement('div');d.className='m user';d.dir='auto';d.textContent=t;$('#msgs').append(d);scroll()}
+const desk={tickets:[],live:null,transcript:[],built:false};
+function rec(role,text){ desk.transcript.push({role,text}); if(desk.live) paintFeed() }
+function user(t){const d=document.createElement('div');d.className='m user';d.dir='auto';d.textContent=t;$('#msgs').append(d);scroll();rec('customer',t)}
 function bot(t,extra){const d=document.createElement('div');d.className='m bot';d.dir=/[\u0600-\u06FF]/.test(t)?'rtl':'auto';d.textContent=t;
   if(extra&&extra.slots){const w=document.createElement('div');w.className='slots';extra.slots.forEach((s,i)=>{const b=document.createElement('button');b.type='button';b.innerHTML=`<span>${i+1}</span>${esc(s)}`;b.onclick=()=>send(String(i+1));w.append(b)});d.append(w)}
   if(extra&&extra.handoff){const k=document.createElement('div');k.className='ticket';const h=extra.handoff;k.textContent=`${h.id} · ${h.queue} · ${h.reason}\n${h.sla}`;d.append(k);kpi.ho++}
   if(extra&&extra.write) kpi.res++;
   $('#kpi').textContent=`Resolved ${kpi.res} · Handed off ${kpi.ho}`;
-  $('#msgs').append(d);scroll()}
+  $('#msgs').append(d);scroll();rec('assistant',t)}
+function humanSay(t){const d=document.createElement('div');d.className='m human';d.dir=/[\u0600-\u06FF]/.test(t)?'rtl':'auto';
+  const tag=document.createElement('b');tag.className='who';tag.textContent=desk.live?desk.live.agent:'Colleague';
+  d.append(tag,document.createTextNode(t));$('#msgs').append(d);scroll();rec('colleague',t)}
 function sys(t){const d=document.createElement('div');d.className='m sys';d.textContent=t;$('#msgs').append(d);scroll()}
 /* ---------- receipts ---------- */
 const KIND={tool:'Tool call',write:'Write',handoff:'Handoff',nlu:'Understanding'};
@@ -748,6 +775,8 @@ function renderReceipt(e){
    ${e.checks&&e.checks.length?`<div class="stamps">${e.checks.map(c=>`<span class="stamp ${c.pass?'pass':'block'}">${c.pass?'Passed':'Blocked'} ${esc(c.id)}<small>${esc(c.msg)}</small></span>`).join('')}</div>`:''}
    ${e.kind==='write'&&e.output.ok?'<span class="big-stamp">Committed</span>':''}${e.kind==='handoff'?'<span class="big-stamp">To human</span>':''}`;
   feed.prepend(d);
+  if(e.kind==='handoff'&&e.output&&e.output.ticket){ const t=e.output.ticket;
+    if(!desk.tickets.some(x=>x.id===t.id)){ desk.tickets.unshift({...t,taken:false,agent:'Layla · '+t.queue}); renderDesk(); deskBadge() } }
   const tn=(e.input&&e.input.tracking_number)||null; if(tn&&api.raw(tn)) {lastT=tn;renderRecord()}
 }
 $('#showNlu').onchange=()=>document.querySelectorAll('[data-nlu]').forEach(n=>n.hidden=!$('#showNlu').checked);
@@ -769,6 +798,48 @@ function renderRecord(){
    <div class="flags">${r.fl.length?r.fl.map(f=>`<span class="flag ${HI.has(f)?'hi':''}">${esc(f)}</span>`).join(''):'<span class="flag">NO DATA-QUALITY FLAGS</span>'}${r.dup?`<span class="flag hi">rows ${r.dup.map(x=>x.row+': '+x.st).join(' | ')}</span>`:''}<span class="flag">source row ${r.row}</span></div>
    ${ch.length?`<div class="diff"><div style="color:var(--ink-3);margin-bottom:4px">CHANGES WRITTEN IN THIS SESSION</div>${ch.map(c=>`<div>${esc(c.ref)} · ${esc(c.type)}: <span class="del">${esc(JSON.stringify(c.before).replace(/,"window_ar":"[^"]*"/g,''))}</span> → <span class="add">${esc(JSON.stringify(c.after).replace(/,"window_ar":"[^"]*"/g,''))}</span></div>`).join('')}</div>`:''}
   </div>`;
+}
+/* ---------- agent desk ---------- */
+function deskBadge(){ const open=desk.tickets.filter(t=>!t.taken).length;
+  $('#tabDesk').textContent='Agent desk'+(open?' ('+open+')':''); }
+function paintFeed(){ const f=$('#deskFeed'); if(!f) return;
+  f.innerHTML=desk.transcript.map(l=>`<div><span class="r ${l.role==='colleague'?'hum':''}">${esc(l.role)}</span><br>${esc(l.text)}</div>`).join('');
+  f.scrollTop=f.scrollHeight; }
+function renderDesk(){
+  const pane=$('#p-desk');
+  if(desk.live){
+    if(!desk.built){
+      const t=desk.live;
+      pane.innerHTML=`<div class="desk-live"><h4>${esc(t.id)} · ${esc(t.tracking_number||'no shipment')}</h4>
+        <div class="meta">${esc(t.queue)} · <b>${esc(t.reason)}</b><br>${esc(t.summary||'')}<br>${esc(t.sla||'')}</div>
+        <div class="desk-feed" id="deskFeed"></div>
+        <div class="desk-c"><input id="deskInp" placeholder="Reply to the customer as ${esc(t.agent)}" autocomplete="off"><button id="deskSend" type="button">Send</button></div>
+        <button class="desk-back" id="deskBack" type="button">Hand back to the assistant</button></div>`;
+      desk.built=true;
+      const fire=()=>{const v=$('#deskInp').value.trim(); if(!v) return; $('#deskInp').value=''; humanSay(v)};
+      $('#deskSend').onclick=fire;
+      $('#deskInp').onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();fire()}};
+      $('#deskBack').onclick=()=>{ const name=desk.live.agent; desk.live=null; desk.built=false;
+        sys('Conversation handed back to the assistant by '+name+'.'); renderDesk(); deskBadge() };
+    }
+    paintFeed(); return;
+  }
+  desk.built=false;
+  if(!desk.tickets.length){
+    pane.innerHTML='<div class="desk-empty"><p>When the assistant hands a conversation to a person, the ticket lands here with everything the colleague needs: why it was escalated, the shipment, and the conversation so far.</p><p>Take one over and you are talking to the customer yourself. The assistant stops replying until you hand it back.</p></div>';
+    return;
+  }
+  pane.innerHTML=desk.tickets.map((t,i)=>`<div class="desk-t"><span class="id">${esc(t.id)}</span><span class="rc">${esc(t.reason)}</span>${t.tracking_number?'<span class="rc">'+esc(t.tracking_number)+'</span>':''}
+    <div class="why">${esc(t.summary||'')}<br>${esc(t.queue)} · ${esc(t.sla||'')}</div>
+    <button type="button" data-i="${i}" class="${t.taken?'done':''}" ${t.taken?'disabled':''}>${t.taken?'Handled':'Take over'}</button></div>`).join('');
+  pane.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{
+    const t=desk.tickets[+b.dataset.i]; if(t.taken) return;
+    t.taken=true; desk.live=t; desk.built=false;
+    sys(t.agent+' has picked up '+t.id+' and joined the conversation.');
+    renderDesk(); deskBadge();
+    document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x.dataset.p==='desk'));
+    document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-desk'));
+  });
 }
 /* ---------- tabs ---------- */
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===b));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.p))});
@@ -813,6 +884,7 @@ $('#scenList').innerHTML=SC.map((s,i)=>{const r=s[1]&&DATA.records[s[1]];return 
 $('#scenList').onclick=e=>{const b=e.target.closest('button');if(!b)return;const s=SC[+b.dataset.i];$('#scen').open=false;boot(false);sys('Scenario: '+s[0]+(s[1]&&DATA.records[s[1]]&&DATA.records[s[1]].p?` · the customer's phone ends ${DATA.records[s[1]].p.slice(-4)}`:''));send(s[2])};
 /* ---------- engines ---------- */
 async function send(text){ if(!text.trim())return; user(text); $('#inp').value='';
+  if(desk.live) return;   // a colleague has taken over: the assistant stays quiet
   if(engine==='llm'){ await llmTurn(text); return }
   const outs=agent.handle(text); for(const o of outs){ await new Promise(r=>setTimeout(r,160)); bot(o.text,o) } }
 $('#form').onsubmit=e=>{e.preventDefault();send($('#inp').value)};

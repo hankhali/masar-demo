@@ -45,6 +45,12 @@ The point of the prototype is the split between what acts and what is allowed:
     The policy checks are identical; switching planners cannot widen what the
     agent is permitted to do.
 
+- **A human takes over for real.** When the guard escalates, the ticket lands in
+  the **Agent desk** tab with the reason code, the shipment and the conversation
+  so far. Take it over and you are talking to the customer yourself: your replies
+  appear in the chat as a named colleague, and the assistant stays quiet until you
+  hand the conversation back. The handoff is a person picking up, not a dead ticket.
+
 The **Data quality** tab reports what was wrong in the source export and how each
 issue is handled. The **Value case** tab is a cost model whose inputs are all
 adjustable, because the operator's real call volume and cost per call are unknown.
