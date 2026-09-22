@@ -234,6 +234,7 @@ const POLICIES = [
   {id:'P-ID-01', area:'Identity', rule:'Any personal detail or change requires tracking number + last 4 digits of the phone on file.', why:'Address change is the classic parcel-interception fraud vector. Production swaps this for an OTP to the phone on file.', assumption:true},
   {id:'P-ID-02', area:'Identity', rule:'3 failed verification attempts lock self-service for that shipment.', why:'Stops brute-forcing 4 digits.', assumption:true},
   {id:'P-ID-03', area:'Identity', rule:'No valid phone on file → cannot verify → human handoff for any change.', why:'70 real shipments (8%) have no phone; 7 more are placeholders.', assumption:false},
+  {id:'P-ID-04', area:'Identity', rule:'A customer without their tracking number may identify a parcel by the mobile number on it. That returns status only, never the tracking number, name, address or COD amount, and never a change.', why:'Open question for the operator: is the number on its own enough to act on, or does it need an SMS one-time code? Verifying the last 4 digits of a number the customer has just typed proves nothing, so until that is answered phone-only identity stays read-only and changes go to a colleague.', assumption:true},
   {id:'P-PR-01', area:'Privacy', rule:'Before verification, share status only. Never name, address, phone or COD amount.', why:'Tracking numbers are guessable (sequential EX4xxxxxAE).', assumption:false},
   {id:'P-PR-02', area:'Privacy', rule:'Courier-only notes (gate codes) are never shown to customers or sent to the model.', why:'"Gate code 4412" appears on 88 shipments in free-text notes.', assumption:false},
   {id:'P-DQ-01', area:'Data', rule:'If the tracking number has conflicting records, do not act. Hand off.', why:'18 tracking numbers have two rows that disagree (e.g. Delivered vs In Transit). A confident wrong answer is worse than a handoff.', assumption:false},
@@ -289,6 +290,19 @@ function mkBackend(DATA){
       if(!r||TEST.has(t)) return log('tool','lookup_shipment',{tracking_number:t},{ok:false,error:'not_found'});
       const verified=!!(session&&session.verified&&session.verified[t]);
       return log('tool','lookup_shipment',{tracking_number:t},{ok:true,shipment:publicView(r,verified)},[{id:'P-PR-01',pass:true,msg:verified?'Verified: full view':'Unverified: status-only view'},...(conflict(r)?[{id:'P-DQ-01',pass:false,msg:`Conflicting rows ${r.dup.map(x=>x.row).join(' & ')}: ${r.dup.map(x=>x.st).join(' vs ')}`}]:[])]);
+    },
+    byPhone(phone){
+      const digits=String(phone||'').replace(/\D/g,'');
+      const checks=[{id:'P-ID-04',pass:true,msg:'Phone-only identity: status view, no tracking number, no changes'}];
+      const masked='••• '+digits.slice(-4);
+      if(digits.length<7) return log('tool','lookup_by_phone',{phone:masked},{ok:false,error:'need_full_number'},checks);
+      const tail=digits.slice(-9);
+      const hits=Object.values(db).filter(r=>r.p&&r.p.replace(/\D/g,'').endsWith(tail)&&!TEST.has(r.t));
+      if(!hits.length) return log('tool','lookup_by_phone',{phone:masked},{ok:false,error:'not_found'},checks);
+      // The tracking number is deliberately withheld from the customer-facing output:
+      // handing it over would let the same phone number be replayed as the last-4 check.
+      return log('tool','lookup_by_phone',{phone:masked},
+        {ok:true,matches:hits.length,status:hits[0].st,attempts:hits[0].at,internal_only_tracking:hits[0].t},checks);
     },
     verify(t,last4,session){
       const r=db[t]; session.tries=session.tries||{}; session.verified=session.verified||{};
@@ -406,6 +420,7 @@ const NLU={
   tracking(t){const u=t.toUpperCase().replace(/[\s\-]/g,'')
       .replace(/EX([\dOIL]{6})AE/g,(_,d)=>'EX'+d.replace(/O/g,'0').replace(/[IL]/g,'1')+'AE');
     const m=u.match(/EX\d{6}AE|TEST\d{4}/);return m?m[0]:null},
+  phone(t){const d=String(t).replace(/[٠-٩]/g,x=>'٠١٢٣٤٥٦٧٨٩'.indexOf(x)).replace(/EX\d{6}AE/ig,'').replace(/\D/g,'');return d.length>=7?d:null},
   last4(t){const s=t.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/EX\d{6}AE/ig,'');const m=s.match(/(?:^|\D)(\d{4})(?:\D|$)/);return m?m[1]:null},
   intent(t){
     const s=t.toLowerCase();
@@ -414,6 +429,7 @@ const NLU={
     if(has(/\b(agent|human|person|representative|operator|real person|someone|call me back|supervisor|manager|customer (service|care|support))\b/,/موظف|انسان|إنسان|شخص|خدمة العملاء|اتصل ?بي|مشرف/)) return 'human';
     if(has(/^(cancel|never ?mind|nevermind|forget it|stop|no thanks|nothing|nvm)\b/,/^(ألغ|الغاء|إلغاء|لا شكرا|لا شكراً|انس|خلاص)/)) return 'cancel';
     if(has(/^help$|what can (you|u) (do|help)|what do (you|u) do|how (does this|do you) work|what are my options|^options$/,/شو تقدر|ماذا تستطيع|كيف يعمل|ما الخيارات|مساعدة/)) return 'capability';
+    if(has(/(give|giving|use|using|try|have) (you |u )?my (phone|mobile|cell|number)|(phone|mobile) number instead|by (my )?(phone|mobile) number|look (it )?up (with|by|using) my (phone|mobile|number)/,/رقم (جوالي|هاتفي|تلفوني|موبايلي)|أعطيك رقمي|اعطيك رقمي/)) return 'phoneid';
     if(has(/(don'?t|do not|dont|doesn'?t) (know|have|remember)|no idea|not sure|can'?t (find|remember)|cannot find|lost (it|my|the)|forgot|don'?t know/,/ما (أعرف|اعرف|عندي)|لا (أعرف|اعرف)|نسيت|ضاع|مو متأكد/)) return 'dontknow';
     if(has(/(not|never|didn'?t|did not|haven'?t)\s+(receive|get|got|arrive)/,/marked (as )?delivered/,/\bstolen\b|\bmissing parcel\b|\bdamaged\b|\bbroken\b|\brefund\b|\bcompensat/,/لم (استلم|أستلم|يصل|توصل)|ما (استلمت|وصل|وصلت)|تعويض|مكسور|تالف|مسروق/)) return 'claim';
     if(has(/\baddress\b|deliver (it )?to (a |another |my )|\bnew location\b|\bmoved\b|wrong (location|building|villa|apt)|where (it|its|it'?s|it is) (being )?deliver|where to deliver|change where/,/عنوان|غير(ت)? (السكن|المكان)|مكان التوصيل/)) return 'address';
@@ -505,6 +521,13 @@ const T={
   cantVerifyAlt:'For your security I can only check those digits against the shipment, I can\'t read the number out.',
   offerHuman:'Would you like me to pass you to a colleague who can help with that?',
   slotsAgain:'Here are the slots I have over the next few days.',
+  askPhone:'Sure. What is the mobile number on the shipment? I can look for an open parcel on it.',
+  phoneShort:'Could you give me the full mobile number, including the operator code?',
+  phoneNone:'I could not find a parcel on that number.',
+  phoneMany:c=>`I found ${c} parcels on that number, so I cannot tell which one you mean.`,
+  phoneFound:st=>`I found one parcel on that number: ${st}.`,
+  phoneNeedMore:'To rebook it or change the address I need to be sure it is really you, and the number on its own is not enough, since anyone could type it. Shall I pass you to a colleague who can verify you properly?',
+  stLabel:{FAILED:'a failed delivery attempt',IN_TRANSIT:'in transit to your local hub',OUT_FOR_DELIVERY:'out for delivery today',REDELIVERY_SCHEDULED:'booked in for redelivery',DELIVERED:'marked as delivered',RETURNED_TO_SENDER:'on its way back to the sender'},
   cantDoThat:'That one is outside what I can do myself.',
   addrPrompt2:'I still couldn\'t read that address. I\'ll pass you to a colleague so it gets done right.',
  },
@@ -550,6 +573,13 @@ const T={
   cantVerifyAlt:'لأسباب أمنية أستطيع فقط مطابقة هذه الأرقام مع الشحنة، ولا أستطيع قراءة الرقم لك.',
   offerHuman:'هل تحب أن أحوّلك إلى زميل يساعدك في ذلك؟',
   slotsAgain:'هذه المواعيد المتاحة خلال الأيام القادمة.',
+  askPhone:'بالتأكيد. ما رقم الجوال المسجّل على الشحنة؟ سأبحث عن طرد مفتوح عليه.',
+  phoneShort:'ممكن الرقم كاملاً مع رمز المشغّل؟',
+  phoneNone:'لم أجد طرداً على هذا الرقم.',
+  phoneMany:c=>`وجدت ${c} طرود على هذا الرقم، ولا أستطيع تحديد أيها تقصد.`,
+  phoneFound:st=>`وجدت طرداً واحداً على هذا الرقم: ${st}.`,
+  phoneNeedMore:'لإعادة الجدولة أو تغيير العنوان أحتاج التأكد من هويتك، والرقم وحده لا يكفي لأن أي شخص يستطيع كتابته. هل أحوّلك إلى زميل يتحقق منك بشكل صحيح؟',
+  stLabel:{FAILED:'لم تتم محاولة التوصيل',IN_TRANSIT:'في الطريق إلى مركز التوزيع',OUT_FOR_DELIVERY:'خارج للتوصيل اليوم',REDELIVERY_SCHEDULED:'محجوز لإعادة التوصيل',DELIVERED:'مسجّل كمسلّم',RETURNED_TO_SENDER:'في طريقه للمرسل'},
   cantDoThat:'هذا خارج ما أستطيع فعله بنفسي.',
   addrPrompt2:'ما زلت لا أستطيع قراءة العنوان. سأحوّلك لزميل ليتم الأمر بشكل صحيح.',
  }
@@ -636,6 +666,18 @@ function mkRulesAgent(api,DATA){
     if(!r.a&&['FAILED','IN_TRANSIT','REDELIVERY_SCHEDULED'].includes(r.st)&&S.session.verified[S.t]) res.push(out(L().addrOnFileJunk));
     res.push(out(L().statusNext[v.status]||L().menu)); S.awaiting=null; return res;
   }
+  function phoneLookup(ph){
+    const o=api.byPhone(ph).output;
+    if(!o.ok&&o.error==='need_full_number') { S.awaiting='phone'; return [out(L().phoneShort)] }
+    if(!o.ok){ S.awaiting='offerHuman'; S.humanCode='OTHER';
+      S.humanWhy='No parcel found on the phone number the customer gave.'; return [out(L().phoneNone),out(L().offerHuman)] }
+    if(o.matches>1){ S.awaiting='offerHuman'; S.humanCode='OTHER';
+      S.humanWhy=o.matches+' parcels share that phone number; customer could not name the tracking number.';
+      return [out(L().phoneMany(o.matches)),out(L().offerHuman)] }
+    S.awaiting='offerHuman'; S.humanCode='CANNOT_VERIFY';
+    S.humanWhy='Identified by phone only (P-ID-04). Needs proper verification before any change to '+o.internal_only_tracking+'.';
+    return [out(L().phoneFound(L().stLabel[o.status]||'on its way')),out(L().phoneNeedMore)];
+  }
   function refine(intent,text,t){
     if(intent!=='claim'||!t) return intent; const r=api.raw(t); if(!r) return intent;
     const hard=/damag|broken|refund|compensat|stolen|تعويض|مكسور|تالف|مسروق/i.test(text);
@@ -657,6 +699,13 @@ function mkRulesAgent(api,DATA){
       if(intent&&!['greet','smalltalk','thanks','status'].includes(intent)) return route(intent,text);
       if(S.want){const w=S.want;S.want=null;return route(w,text)}
       return statusReply();
+    }
+    if(S.awaiting==='phone'){
+      const ph=NLU.phone(text);
+      if(ph){ S.awaiting=null; return phoneLookup(ph) }
+      if(NLU.no(text)||intent==='dontknow'||intent==='cancel'){ S.awaiting='offerHuman'; S.humanCode='OTHER';
+        S.humanWhy='Customer has neither the tracking number nor the phone on the shipment.'; return [out(L().offerHuman)] }
+      if(String(text).replace(/\D/g,'').length>=3) return [out(L().phoneShort)];   // digits, but not a whole number
     }
     if(S.awaiting==='offerHuman'){
       S.awaiting=null;
@@ -702,8 +751,8 @@ function mkRulesAgent(api,DATA){
       if(intent==='thanks') return [out(L().thanks)];
       if(intent==='capability') return [out(L().capability)];
       if(intent==='cancel') return [out(L().cancelled)];
-      if(intent==='dontknow'){ S.awaiting='offerHuman'; S.humanCode='OTHER';
-        S.humanWhy='Customer does not have their tracking number.'; return [out(L().noTrackNum),out(L().offerHuman)] }
+      if(intent==='phoneid'){ S.awaiting='phone'; return [out(L().askPhone)] }
+      if(intent==='dontknow'){ S.awaiting='phone'; return [out(L().noTrackNum),out(L().askPhone)] }
       if(intent&&['reschedule','address','status','claim'].includes(intent)){ S.want=intent; S.pref=NLU.when(text); return [out(L().askTracking)] }
       if(/\d{5,}/.test(text)) return [out(L().notFound(text.replace(/\s/g,'').slice(0,14)))];
       if(/\b(poem|joke|write|story|weather|politic|recipe|code|football|song|ignore (all|previous)|system prompt|pretend)\b/i.test(text)||/نكتة|قصيدة|طقس/.test(text)) return [out(L().offTopic)];
