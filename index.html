@@ -387,10 +387,11 @@ const NLU={
   intent(t){
     const s=t.toLowerCase();
     const has=(...r)=>r.some(x=>x.test(s));
-    if(has(/\b(agent|human|person|representative|operator|real person|someone|call me back|supervisor|manager)\b/,/موظف|انسان|إنسان|شخص|خدمة العملاء|اتصل ?بي|مشرف/)) return 'human';
+    if(has(/^(hi|hello|hey|hiya|salam|greetings|good (morning|afternoon|evening))( there| masar)?[\s!.,?]*$/,/^(مرحبا|مرحباً|السلام عليكم|السلام|هلا|اهلا|أهلا|صباح الخير|مساء الخير)[\s!.,؟]*$/)) return 'greet';
+    if(has(/\b(agent|human|person|representative|operator|real person|someone|call me back|supervisor|manager|customer (service|care|support))\b/,/موظف|انسان|إنسان|شخص|خدمة العملاء|اتصل ?بي|مشرف/)) return 'human';
     if(has(/(not|never|didn'?t|did not|haven'?t)\s+(receive|get|got|arrive)/,/marked (as )?delivered/,/\bstolen\b|\bmissing parcel\b|\bdamaged\b|\bbroken\b|\brefund\b|\bcompensat/,/لم (استلم|أستلم|يصل|توصل)|ما (استلمت|وصل|وصلت)|تعويض|مكسور|تالف|مسروق/)) return 'claim';
-    if(has(/\baddress\b|deliver (it )?to (a |another |my )|\bnew location\b|\bmoved\b|wrong (location|building|villa|apt)/,/عنوان|غير(ت)? (السكن|المكان)|مكان التوصيل/)) return 'address';
-    if(has(/re-?schedul|re-?deliver|deliver (it )?(again|another|tomorrow|on|next)|another (day|time|slot)|change (the )?(date|time|slot|day)|not (be )?(at )?home|won'?t be (home|there|in)|\bslot\b|\btomorrow\b|\bevening\b|\bmorning\b|\bafternoon\b|try again/,/موعد|إعادة التوصيل|اعادة التوصيل|وقت ثاني|يوم ثاني|بكرة|بكره|غد|غداً|مساء|صباح|ما راح أكون|لن أكون|مو موجود|غير موجود/)) return 'reschedule';
+    if(has(/\baddress\b|deliver (it )?to (a |another |my )|\bnew location\b|\bmoved\b|wrong (location|building|villa|apt)|where (it|its|it'?s|it is) (being )?deliver|where to deliver|change where/,/عنوان|غير(ت)? (السكن|المكان)|مكان التوصيل/)) return 'address';
+    if(has(/re-?schedul|re-?deliver|re-?book|\bpostpone\b|deliver (it )?(again|another|tomorrow|on|next)|another (day|time|slot)|new (delivery )?(date|time|slot|day|appointment)|change (the )?(date|time|slot|day)|send (it )?again|come (back|again)|not (be )?(at )?home|won'?t be (home|there|in)|\bslot\b|\btomorrow\b|\bevening\b|\bmorning\b|\bafternoon\b|try again/,/موعد|إعادة التوصيل|اعادة التوصيل|وقت ثاني|يوم ثاني|بكرة|بكره|غد|غداً|مساء|صباح|ما راح أكون|لن أكون|مو موجود|غير موجود/)) return 'reschedule';
     if(has(/\bwhere\b|\bstatus\b|\btrack|\bwhen\b|\bupdate\b|what happened|\bfailed\b|missed/,/وين|أين|اين|حالة|تتبع|متى|شحنتي|طردي|وش صار|ماذا حدث/)) return 'status';
     if(has(/^(hi|hello|hey|salam|good (morning|evening))\b/,/^(مرحبا|السلام|هلا|اهلا|أهلا|صباح|مساء الخير)/)) return 'greet';
     if(has(/^(how are (you|u|ya)|how'?s it going|how is it going|how'?s things|how are things|how'?s your day|how do you do|hope you'?re? (well|good)|what'?s up|wassup|sup)\b/,/كيف حالك|كيفك|شلونك|شخبارك|كيف الحال|أخبارك/)) return 'smalltalk';
@@ -807,6 +808,16 @@ function cleanReply(t){
   const raw=String(t||'').trim(); if(!raw) return '';
   /* A sentence end with no space before the next one is the tell: normal prose never
      does it, so anything that splits here is the model restarting its own answer. */
+  const junk=p=>{
+    if(/(?:\.\.\.|\u2026)[\s\u2026.]{4,}/.test(p)) return true;          // runs of ellipses
+    const w=(p.match(/\p{L}{2,}/gu)||[]).length;
+    return p.length>40 && w/p.length<0.08;                        // almost no real words
+  };
+  if(junk(raw)){
+    const salvage=raw.split(/\n+/).map(x=>x.trim()).filter(x=>x&&!junk(x));
+    if(!salvage.length) return '';                                // caller falls back
+    return cleanReply(salvage.join(' '));
+  }
   const parts=raw.split(/(?<=[.!?\u061F])(?=["\u201C\u2018']?[A-Z\u0600-\u06FF])/).map(p=>p.trim()).filter(Boolean);
   if(parts.length<2) return raw;
   const RESTART=/^(sure|certainly|of course|absolutely|no problem|understood|thank you|thanks|apolog|sorry|happy to|glad to|i'?m ready|i am ready|i'?m here|i can help|let me)/i;
@@ -845,12 +856,13 @@ async function llmTurn(text){
   try{
     for(let i=0;i<8;i++){
       const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:llm.model,max_tokens:600,tools:OA_TOOLS,tool_choice:'auto',messages:[{role:'system',content:SYSTEM},...llm.history]})});
-      const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(r.status===429?'the free Groq tier is rate limited right now':((j.error&&j.error.message)||('HTTP '+r.status)));
       const m=j.choices&&j.choices[0]&&j.choices[0].message; if(!m) throw new Error('empty response from the model');
       llm.history.push({role:'assistant',content:m.content||'',tool_calls:m.tool_calls});
       const say=cleanReply(m.content); if(say) bot(say);
       const calls=m.tool_calls||[];
-      if(!calls.length) break;
+      if(!calls.length){ if(!say) throw new Error('the model returned an unusable reply'); break }
       for(const c of calls){
         let args={}; try{args=JSON.parse(c.function.arguments||'{}')}catch(e){}
         llm.history.push({role:'tool',tool_call_id:c.id,content:JSON.stringify(runTool(c.function.name,args,text))});
