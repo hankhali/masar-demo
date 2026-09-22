@@ -393,6 +393,7 @@ const NLU={
     if(has(/re-?schedul|re-?deliver|deliver (it )?(again|another|tomorrow|on|next)|another (day|time|slot)|change (the )?(date|time|slot|day)|not (be )?(at )?home|won'?t be (home|there|in)|\bslot\b|\btomorrow\b|\bevening\b|\bmorning\b|\bafternoon\b|try again/,/موعد|إعادة التوصيل|اعادة التوصيل|وقت ثاني|يوم ثاني|بكرة|بكره|غد|غداً|مساء|صباح|ما راح أكون|لن أكون|مو موجود|غير موجود/)) return 'reschedule';
     if(has(/\bwhere\b|\bstatus\b|\btrack|\bwhen\b|\bupdate\b|what happened|\bfailed\b|missed/,/وين|أين|اين|حالة|تتبع|متى|شحنتي|طردي|وش صار|ماذا حدث/)) return 'status';
     if(has(/^(hi|hello|hey|salam|good (morning|evening))\b/,/^(مرحبا|السلام|هلا|اهلا|أهلا|صباح|مساء الخير)/)) return 'greet';
+    if(has(/^(how are (you|u|ya)|how'?s it going|how is it going|how'?s things|how are things|how'?s your day|how do you do|hope you'?re? (well|good)|what'?s up|wassup|sup)\b/,/كيف حالك|كيفك|شلونك|شخبارك|كيف الحال|أخبارك/)) return 'smalltalk';
     if(has(/\b(thanks|thank you|thx|cheers|bye)\b/,/شكرا|شكراً|مشكور|يعطيك العافية|مع السلامة/)) return 'thanks';
     return null;
   },
@@ -469,6 +470,7 @@ const T={
   handoff:(id,q)=>`I've created ticket ${id} for the ${q}. A colleague will call you back within 4 working hours, and they'll already have this conversation.`,
   offTopic:'I can only help with deliveries: tracking, rescheduling and delivery addresses. What can I do for your parcel?',
   thanks:'You\'re welcome. Anything else for this parcel?',
+  smalltalk:'I\'m good, thank you for asking. What can I do for your parcel today?',
   menu:'I can reschedule the delivery or update the address. Which would you like?',
   confused:'Sorry, I didn\'t catch that. You can say "reschedule", "change address", or "talk to someone".',
   addrPrompt2:'I still couldn\'t read that address. I\'ll pass you to a colleague so it gets done right.',
@@ -507,6 +509,7 @@ const T={
   handoff:(id,q)=>`أنشأت التذكرة ${id} لدى ${q==='Claims desk'?'فريق المطالبات':'فريق استثناءات التوصيل'}. سيتصل بك زميل خلال ٤ ساعات عمل، وستكون المحادثة أمامه.`,
   offTopic:'أستطيع المساعدة في التوصيل فقط: التتبع، وإعادة الجدولة، وعنوان التوصيل. كيف أساعدك في شحنتك؟',
   thanks:'العفو. هل تحتاج شيئاً آخر لهذه الشحنة؟',
+  smalltalk:'بخير، شكراً لسؤالك. كيف أساعدك في شحنتك اليوم؟',
   menu:'أستطيع إعادة جدولة التوصيل أو تحديث العنوان. ماذا تفضّل؟',
   confused:'عذراً، لم أفهم. يمكنك قول "موعد جديد" أو "تغيير العنوان" أو "موظف".',
   addrPrompt2:'ما زلت لا أستطيع قراءة العنوان. سأحوّلك لزميل ليتم الأمر بشكل صحيح.',
@@ -612,7 +615,7 @@ function mkRulesAgent(api,DATA){
       const e=api.lookup(tn,S.session);
       if(!e.output.ok) return [out(L().notFound(tn))];
       S.t=tn; S.awaiting=null; S.pending=null; S.slotList=null;
-      if(intent&&!['greet','thanks','status'].includes(intent)) return route(intent,text);
+      if(intent&&!['greet','smalltalk','thanks','status'].includes(intent)) return route(intent,text);
       if(S.want){const w=S.want;S.want=null;return route(w,text)}
       return statusReply();
     }
@@ -622,7 +625,7 @@ function mkRulesAgent(api,DATA){
         if(e.output.ok) return afterVerified();
         if(e.output.error==='locked') return [out(L().locked),handoff('VERIFY_LOCKED','3 failed verification attempts.')];
         return [out(L().badLast4(e.output.attempts_left))]; }
-      if(intent&&intent!=='greet') {S.awaiting=null} else return [out(L().askLast4)];
+      if(intent&&intent!=='greet'&&intent!=='smalltalk') {S.awaiting=null} else return [out(L().askLast4)];
     }
     if(S.awaiting==='confirm'&&S.pending){
       if(NLU.yes(text)){
@@ -648,6 +651,7 @@ function mkRulesAgent(api,DATA){
     }
     if(!S.t){
       if(intent==='greet') return [out(L().hello)];
+      if(intent==='smalltalk') return [out(L().smalltalk)];
       if(intent==='thanks') return [out(L().thanks)];
       if(intent&&['reschedule','address','status','claim'].includes(intent)){ S.want=intent; S.pref=NLU.when(text); return [out(L().askTracking)] }
       if(/\d{5,}/.test(text)) return [out(L().notFound(text.replace(/\s/g,'').slice(0,14)))];
@@ -657,6 +661,7 @@ function mkRulesAgent(api,DATA){
     if(/^\s*\d{4}\s*$/.test(text)&&!S.session.verified[S.t]){ S.awaiting='last4'; S.want=null; return handle(text) }
     if(NLU.yes(text)&&!S.pending) return [out(L().menu)];
     if(intent==='thanks') return [out(L().thanks)];
+    if(intent==='smalltalk') return [out(L().smalltalk)];
     if(intent==='greet') return [out(L().menu)];
     if(intent) return route(intent,text);
     if(/\b(poem|joke|write|story|weather|politic|recipe|code|football|song|ignore (all|previous)|system prompt|pretend)\b/i.test(text)||/نكتة|قصيدة|طقس/.test(text)) return [out(L().offTopic)];

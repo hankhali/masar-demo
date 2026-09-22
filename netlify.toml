@@ -8,3 +8,13 @@
   to = "/.netlify/functions/chat"
   status = 200
   force = true
+
+# The page is a single HTML file that changes on every deploy. Netlify's edge was
+# holding a stale brotli variant keyed on the browser's exact Accept-Encoding
+# ("gzip, deflate, br, zstd"), so browsers kept getting an old build while curl
+# got the new one. Netlify-CDN-Cache-Control governs the edge specifically.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Netlify-CDN-Cache-Control = "public, max-age=0, must-revalidate"
