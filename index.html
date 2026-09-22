@@ -949,7 +949,7 @@ function cleanReply(t){
 const OA_TOOLS=TOOLS.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.input_schema}}));
 const llmSession={verified:{},tries:{}};
 function runTool(name,inp,lastUser){
-  const t=(inp.tracking_number||'').toUpperCase(); const yes=NLU.yes(lastUser)||/\b(yes|book it|confirm)\b/i.test(lastUser)||/نعم|أكد|تمام|موافق/.test(lastUser);
+  const t=(inp.tracking_number||'').toUpperCase(); if(/^EX\d{6}AE$/.test(t)) llm.lastT=t; const yes=NLU.yes(lastUser)||/\b(yes|book it|confirm)\b/i.test(lastUser)||/نعم|أكد|تمام|موافق/.test(lastUser);
   let e;
   if(name==='lookup_shipment') e=api.lookup(t,llmSession);
   else if(name==='verify_customer') e=api.verify(t,String(inp.phone_last4||'').slice(-4),llmSession);
@@ -960,6 +960,15 @@ function runTool(name,inp,lastUser){
   else if(name==='create_handoff'){ e=api.handoff(t||null,inp.reason_code,inp.summary,llmSession); kpi.ho++; $('#kpi').textContent=`Resolved ${kpi.res} · Handed off ${kpi.ho}` }
   else return {ok:false,error:'unknown_tool'};
   return e.output;
+}
+/* The two engines keep separate state. If the model drops out mid-conversation the
+   rules engine has never seen the shipment, so a bare "1241" would be meaningless.
+   Move across what the model had already established before handing the turn over. */
+function carryOver(){
+  const t=llm.lastT; if(!t||!agent.state) return;
+  if(!agent.state.t){ agent.state.t=t; lastT=t }
+  if(llmSession.verified&&llmSession.verified[t]) agent.state.session.verified[t]=true;
+  if(!agent.state.session.verified[t]) agent.state.awaiting='last4';
 }
 async function llmTurn(text){
   const mark=llm.history.length;
@@ -980,7 +989,10 @@ async function llmTurn(text){
         llm.history.push({role:'tool',tool_call_id:c.id,content:JSON.stringify(runTool(c.function.name,args,text))});
       }
     }
-  }catch(err){ sys('The model could not be reached ('+err.message+'). Switching back to the rules engine for this message.'); llm.history.length=mark; engine='rules';$('#engRules').setAttribute('aria-pressed','true');$('#engLLM').setAttribute('aria-pressed','false'); const outs=agent.handle(text); outs.forEach(o=>bot(o.text,o)) }
+  }catch(err){ sys('The model could not be reached ('+err.message+'). Switching back to the rules engine for this message.');
+    llm.history.length=mark; engine='rules';$('#engRules').setAttribute('aria-pressed','true');$('#engLLM').setAttribute('aria-pressed','false');
+    carryOver();
+    const outs=agent.handle(text); outs.forEach(o=>bot(o.text,o)) }
   ty.remove();
 }
 boot(true);
