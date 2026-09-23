@@ -994,6 +994,10 @@ $('#form').onsubmit=e=>{e.preventDefault();send($('#inp').value)};
 $('#newChat').onclick=()=>{boot(false);sys('New conversation. Changes written earlier in this session are kept, so you can test repeat requests.')};
 $('#resetAll').onclick=()=>{kpi={res:0,ho:0};boot(true);$('#recView').className='empty';$('#recView').innerHTML='<p>Open a shipment in the chat to see its record.</p>';sys('All data reset to the original dataset.')};
 function setEngine(e){engine=e;llm.history=[];$('#engRules').setAttribute('aria-pressed',String(e==='rules'));$('#engLLM').setAttribute('aria-pressed',String(e==='llm'))}
+const OFFLINE=location.protocol==='file:';
+if(OFFLINE){ const bt=$('#engLLM');
+  bt.disabled=true; bt.title='LLM mode needs the hosted copy. Everything else runs offline from this file.';
+  bt.style.opacity='.45'; bt.style.cursor='not-allowed'; bt.textContent='LLM mode (hosted only)'; }
 $('#engRules').onclick=()=>{setEngine('rules');sys('Rules engine on.')};
 $('#engLLM').onclick=()=>{setEngine('llm');sys(`LLM mode on (${llm.model}). The model decides what to call; the same policy checks in code decide what is allowed.`)};
 /* ---------- LLM agent ---------- */
