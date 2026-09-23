@@ -439,9 +439,11 @@ const NLU={
       d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
     return d[m][k];
   },
-  fuzzyGreet(t){ // "he", "helo", "helli", "hii", "gm"
-    const w=String(t).trim().toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/)[0]||'';
-    if(!w||w.length>8) return false;
+  fuzzyGreet(t){ // "he", "helo", "helli", "hii" - the whole message, not a sentence opener
+    const words=String(t).trim().toLowerCase().replace(/[^a-z\s]/g,'').trim().split(/\s+/).filter(Boolean);
+    if(!words.length||words.length>2) return false;
+    const w=words[0];
+    if(w.length<2||w.length>8) return false;          // "i" is not a greeting
     if(/^h[aei]+[ly]*$/.test(w)) return true;
     return ['hi','hey','hello','hiya','helo','yo','salam','greetings'].some(g=>NLU.ed(w,g)<=1);
   },
@@ -549,7 +551,7 @@ const T={
   smalltalk:'I\'m good, thank you for asking. What can I do for your parcel today?',
   menu:'I can reschedule the delivery or update the address. Which would you like?',
   menuNoRs:'This parcel has used all 3 delivery attempts, so I can\'t book another one myself. I can still update the delivery address, or pass you to a colleague about the delivery. Which would help?',
-  confused:'Sorry, I didn\'t quite catch that. You can give me a tracking number like EX400123AE, or say "reschedule", "change address", or "talk to someone".',
+  confused:'Sorry, I didn\'t quite catch that. You can give me a tracking number like EX400123AE, or say "reschedule", "change address", or "talk to an agent".',
   capability:'I can track a parcel, book a new delivery slot, or update a delivery address. What\'s your tracking number? It looks like EX400123AE.',
   noTrackNum:'It\'s in the SMS or email we sent when the parcel shipped, and on the card the courier left. It starts with EX and ends with AE.',
   cantVerifyAlt:'For your security I can only check those digits against the shipment, I can\'t read the number out.',
@@ -602,7 +604,7 @@ const T={
   smalltalk:'بخير، شكراً لسؤالك. كيف أساعدك في شحنتك اليوم؟',
   menu:'أستطيع إعادة جدولة التوصيل أو تحديث العنوان. ماذا تفضّل؟',
   menuNoRs:'استُخدمت محاولات التوصيل الثلاث، لذلك لا أستطيع حجز موعد جديد بنفسي. أستطيع تحديث عنوان التوصيل، أو تحويلك لزميل بخصوص التوصيل. ماذا تفضّل؟',
-  confused:'عذراً، لم أفهم تماماً. أعطني رقم التتبع مثل EX400123AE، أو قل "موعد جديد" أو "تغيير العنوان" أو "موظف".',
+  confused:'عذراً، لم أفهم تماماً. أعطني رقم التتبع مثل EX400123AE، أو قل "موعد جديد" أو "تغيير العنوان" أو "التحدث إلى موظف".',
   capability:'أستطيع تتبّع الشحنة، أو حجز موعد توصيل جديد، أو تحديث عنوان التوصيل. ما رقم التتبع؟ مثل EX400123AE.',
   noTrackNum:'تجده في الرسالة النصية أو البريد الذي أرسلناه عند شحن الطرد، وعلى البطاقة التي تركها المندوب. يبدأ بـ EX وينتهي بـ AE.',
   cantVerifyAlt:'لأسباب أمنية أستطيع فقط مطابقة هذه الأرقام مع الشحنة، ولا أستطيع قراءة الرقم لك.',
