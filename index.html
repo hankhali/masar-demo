@@ -1028,7 +1028,14 @@ function noLlmHere(){ const bt=$('#engLLM'); if(!bt||bt.disabled) return;
   bt.title='LLM mode needs the hosted copy with its serverless function. Everything else works here.';
   bt.style.opacity='.45'; bt.style.cursor='not-allowed';
   if(engine==='llm'){ setEngine('rules'); sys('LLM mode is not available on this copy. The rules engine handles everything else.') } }
-if(location.protocol==='file:') noLlmHere();
+/* Only the Netlify copy (and netlify dev locally) carries the /api/chat function.
+   Decide up front rather than after a request fails; the 404 path above stays as a
+   backstop for anywhere unexpected. */
+(function(){ const h=location.hostname;
+  const hasApi = location.protocol!=='file:' &&
+    (/(^|\.)netlify\.app$/.test(h) || h==='localhost' || h==='127.0.0.1' || h==='');
+  if(!hasApi) noLlmHere();
+})();
 $('#engRules').onclick=()=>{setEngine('rules');sys('Rules engine on.')};
 $('#engLLM').onclick=()=>{setEngine('llm');sys(`LLM mode on (${llm.model}). The model decides what to call; the same policy checks in code decide what is allowed.`)};
 /* ---------- LLM agent ---------- */
