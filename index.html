@@ -1037,6 +1037,7 @@ Scope: tracking, rescheduling a delivery, changing a delivery address, handing o
 Reply in the language of the customer's latest message, English or Gulf-friendly Modern Standard Arabic. Never switch language first. 1 to 3 short sentences, one question at a time, one reply per message, never restate the same answer twice.
 Rules:
 - Every fact about a shipment comes from a tool. Never guess a status, date, slot, amount or policy. If a tool is blocked, say so simply and offer the alternative or a handoff.
+- Get the tracking number first. Without one you cannot look up, verify or hand off a shipment, so never ask for phone digits before you have it.
 - Verify with verify_customer (last 4 digits of the phone on file) before any personal detail or change. Ask for them if you do not have them.
 - Quote a change back (date and window, or the full normalised address, plus any COD amount) and get a clear yes in the customer's latest message before calling reschedule_delivery or update_address.
 - If a tool result has "data_conflict": true, our records disagree. Do not quote the status or any detail from it. You MUST call create_handoff with reason_code DATA_CONFLICT in this same turn. Never say you will connect someone without making that call.
@@ -1050,7 +1051,7 @@ const TOOLS=[
  {name:'reschedule_delivery',description:'Book a slot. Only after the customer agreed to it in their latest message.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},slot_id:{type:'string',description:'slot_id from get_delivery_slots'}},required:['tracking_number','slot_id']}},
  {name:'validate_address',description:'Check a new address in the same emirate. Returns address_token, or what is missing.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},new_address:{type:'string'}},required:['tracking_number','new_address']}},
  {name:'update_address',description:'Commit an address. Only after the customer agreed to it in their latest message.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},address_token:{type:'string'}},required:['tracking_number','address_token']}},
- {name:'create_handoff',description:'Hand to a human colleague with a summary.',input_schema:{type:'object',properties:{tracking_number:{type:'string'},reason_code:{type:'string',enum:['CUSTOMER_REQUEST','CLAIM','DATA_CONFLICT','MAX_ATTEMPTS','CANNOT_VERIFY','CROSS_EMIRATE','ADDRESS_CHANGE_APPROVAL','RETURN_REDIRECT','OTHER']},summary:{type:'string'}},required:['reason_code','summary']}}];
+ {name:'create_handoff',description:'Hand to a human colleague with a summary. Omit tracking_number if there is no shipment.',input_schema:{type:'object',properties:{tracking_number:{type:['string','null'],description:'Omit or null when no shipment is open'},reason_code:{type:'string',enum:['CUSTOMER_REQUEST','CLAIM','DATA_CONFLICT','MAX_ATTEMPTS','CANNOT_VERIFY','CROSS_EMIRATE','ADDRESS_CHANGE_APPROVAL','RETURN_REDIRECT','OTHER']},summary:{type:'string'}},required:['reason_code','summary']}}];
 /* gpt-oss occasionally emits several drafts of the same reply concatenated with no
    space after the punctuation ("...please?Sure, please provide..."). Keep the first
    draft and drop any later one that only restates it. */
@@ -1132,7 +1133,9 @@ async function llmTurn(text){
       const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:llm.model,max_tokens:600,tools:OA_TOOLS,tool_choice:'auto',messages:[{role:'system',content:SYSTEM},...llm.history]})});
       const j=await r.json().catch(()=>({}));
       if(r.status===404){ noLlmHere(); throw new Error('this copy has no model backend') }
-      if(!r.ok) throw new Error(r.status===429?'the free Groq tier is rate limited right now':((j.error&&j.error.message)||('HTTP '+r.status)));
+      if(!r.ok){ const raw=(j.error&&j.error.message)||('HTTP '+r.status);
+        throw new Error(r.status===429?'the free Groq tier is rate limited right now'
+          :/tool call validation|did not match schema/i.test(raw)?'the model made an invalid tool call':raw) }
       const m=j.choices&&j.choices[0]&&j.choices[0].message; if(!m) throw new Error('empty response from the model');
       llm.history.push({role:'assistant',content:m.content||'',tool_calls:m.tool_calls});
       const say=cleanReply(m.content); if(say) bot(say);
